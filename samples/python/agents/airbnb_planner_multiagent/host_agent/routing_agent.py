@@ -1,6 +1,7 @@
 # pylint: disable=logging-fstring-interpolation
 import asyncio
 import json
+import logging
 import os
 import uuid
 
@@ -30,6 +31,35 @@ from remote_agent_connection import (
 
 
 load_dotenv()
+
+# Set up configurable logging
+def setup_logger():
+    logger = logging.getLogger(__name__)
+    
+    # Get log level from environment (default to INFO)
+    log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+    numeric_level = getattr(logging, log_level, logging.INFO)
+    logger.setLevel(numeric_level)
+    
+    # Only add handler if not already configured
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        
+        # Get log format from environment (with a comprehensive default)
+        log_format = os.getenv(
+            'LOG_FORMAT', 
+            '%(asctime)s | %(name)s | %(levelname)s | %(funcName)s:%(lineno)d | %(message)s'
+        )
+        formatter = logging.Formatter(log_format)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    
+    return logger
+
+logger = setup_logger()
+
+# Log the current logging configuration
+logger.info(f"🔧 Logging configured - Level: {os.getenv('LOG_LEVEL', 'INFO')}, Format: Custom")
 
 
 def convert_part(part: Part, tool_context: ToolContext):
@@ -220,20 +250,34 @@ class RoutingAgent:
         Yields:
             A dictionary of JSON data.
         """
+        logger.info(f"🚀 Routing task to agent '{agent_name}': {task[:100]}...")
+        
         if agent_name not in self.remote_agent_connections:
+            logger.error(f"❌ Agent '{agent_name}' not found in available connections: {list(self.remote_agent_connections.keys())}")
             raise ValueError(f'Agent {agent_name} not found')
+        
         state = tool_context.state
+        logger.debug(f"📊 State object type: {type(state)}")
+        logger.debug(f"📊 State object: {state}")
+        
         state['active_agent'] = agent_name
         client = self.remote_agent_connections[agent_name]
 
         if not client:
+            logger.error(f"❌ Client not available for agent '{agent_name}'")
             raise ValueError(f'Client not available for {agent_name}')
-        task_id = state['task_id'] if 'task_id' in state else str(uuid.uuid4())
+            
+        # Log ID generation/retrieval with appropriate levels
+        has_task_id_in_state = 'task_id' in state
+        task_id = state['task_id'] if has_task_id_in_state else str(uuid.uuid4())
+        logger.info(f"🔑 Task ID: {task_id} {'(from state)' if has_task_id_in_state else '(generated)'}")
 
-        if 'context_id' in state:
+        has_context_id_in_state = 'context_id' in state
+        if has_context_id_in_state:
             context_id = state['context_id']
         else:
             context_id = str(uuid.uuid4())
+        logger.debug(f"🔑 Context ID: {context_id} {'(from state)' if has_context_id_in_state else '(generated)'}")
 
         message_id = ''
         metadata = {}
@@ -243,6 +287,7 @@ class RoutingAgent:
                 message_id = state['input_message_metadata']['message_id']
         if not message_id:
             message_id = str(uuid.uuid4())
+        logger.debug(f"🔑 Message ID: {message_id}")
 
         payload = {
             'message': {
@@ -254,32 +299,56 @@ class RoutingAgent:
             },
         }
 
-        if task_id:
-            payload['message']['taskId'] = task_id
+        # Don't send taskId to remote agents - let them create their own tasks
+        # Remote agents should create new tasks, not try to find existing unknown task IDs
+        # if task_id:
+        #     payload['message']['taskId'] = task_id
+        #     logger.debug(f"✅ Added taskId to payload: {task_id}")
+        logger.info(f"🚫 Skipping taskId in payload - letting '{agent_name}' create its own task")
 
         if context_id:
             payload['message']['contextId'] = context_id
+            logger.debug(f"✅ Added contextId to payload: {context_id}")
+
+        logger.debug(f"📤 Full payload to '{agent_name}': {json.dumps(payload, indent=2)}")
 
         message_request = SendMessageRequest(
             id=message_id, params=MessageSendParams.model_validate(payload)
         )
-        send_response: SendMessageResponse = await client.send_message(
-            message_request=message_request
-        )
+        
+        logger.info(f"🌐 Sending request to '{agent_name}'...")
+        try:
+            send_response: SendMessageResponse = await client.send_message(
+                message_request=message_request
+            )
+            logger.info(f"📥 Received response from '{agent_name}'")
+        except Exception as e:
+            logger.error(f"❌ Failed to send message to '{agent_name}': {e}")
+            raise
+        
+        logger.debug(f"📥 Full response from '{agent_name}': {send_response.model_dump_json(exclude_none=True, indent=2)}")
         print(
             'send_response',
             send_response.model_dump_json(exclude_none=True, indent=2),
         )
 
         if not isinstance(send_response.root, SendMessageSuccessResponse):
+            logger.error(f"❌ Non-success response from '{agent_name}': {type(send_response.root)}")
+            if hasattr(send_response.root, 'error'):
+                logger.error(f"❌ Error details: {send_response.root.error}")
             print('received non-success response. Aborting get task ')
             return None
 
         if not isinstance(send_response.root.result, Task):
+            logger.error(f"❌ Expected Task object from '{agent_name}', got: {type(send_response.root.result)}")
+            logger.debug(f"❌ Actual result: {send_response.root.result}")
             print('received non-task response. Aborting get task ')
             return None
 
-        return send_response.root.result
+        task_result = send_response.root.result
+        logger.info(f"✅ Task {task_result.id} successfully received from '{agent_name}'")
+        logger.debug(f"✅ Task status: {task_result.status.state if task_result.status else 'unknown'}")
+        return task_result
 
 
 def _get_initialized_routing_agent_sync() -> Agent:
