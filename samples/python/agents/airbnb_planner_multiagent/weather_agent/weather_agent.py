@@ -10,9 +10,30 @@ from google.adk.tools.mcp_tool.mcp_toolset import (
 
 def create_weather_agent() -> LlmAgent:
     """Constructs the ADK agent."""
-    LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'gemini-2.5-flash')
+    # Check environment variable like airbnb agent
+    use_vertexai = os.getenv('GOOGLE_GENAI_USE_VERTEXAI', 'TRUE') == 'TRUE'
+    base_model = os.getenv('GOOGLE_GENAI_MODEL', 'gemini-2.5-flash')
+    
+    if use_vertexai:
+        # Use Vertex AI - model name as-is
+        LITELLM_MODEL = base_model  
+        print(f"Weather Agent: Using Vertex AI with model '{LITELLM_MODEL}'")
+        litellm_config = {}
+    else:
+        # Use Google AI Studio - explicitly set provider and API key
+        LITELLM_MODEL = base_model
+        api_key = os.getenv('GOOGLE_API_KEY', '')
+        litellm_config = {
+            'custom_llm_provider': 'gemini',
+            'api_key': api_key
+        }
+        print(f"Weather Agent: Using Google AI Studio with model '{LITELLM_MODEL}' and explicit provider config")
+    
+    # Allow override via LITELLM_MODEL if explicitly set
+    LITELLM_MODEL = os.getenv('LITELLM_MODEL', LITELLM_MODEL)
+    
     return LlmAgent(
-        model=LiteLlm(model=LITELLM_MODEL),
+        model=LiteLlm(model=LITELLM_MODEL, **litellm_config),
         name='weather_agent',
         description='An agent that can help questions about weather',
         instruction="""You are a specialized weather forecast assistant. Your primary function is to utilize the provided tools to retrieve and relay weather information in response to user queries. You must rely exclusively on these tools for data and refrain from inventing information. Ensure that all responses include the detailed output from the tools used and are formatted in Markdown""",
