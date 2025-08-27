@@ -253,9 +253,10 @@ class RoutingAgent:
                 'messageId': message_id,
             },
         }
-
-        if task_id:
-            payload['message']['taskId'] = task_id
+        # Don't send taskId to remote agents - let them create their own tasks  
+        # Remote agents should create new tasks, not try to find existing unknown task IDs
+        # if task_id:
+        #     payload['message']['taskId'] = task_id
 
         if context_id:
             payload['message']['contextId'] = context_id
