@@ -1,13 +1,17 @@
 import json
+import os
 
 from typing import Any
 
 import httpx
 
+from dotenv import load_dotenv
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 from geopy.geocoders import Nominatim
 from mcp.server.fastmcp import FastMCP
 
+
+load_dotenv()
 
 # Initialize FastMCP server
 mcp = FastMCP('weather')
@@ -15,8 +19,8 @@ mcp = FastMCP('weather')
 # --- Configuration & Constants ---
 BASE_URL = 'https://api.weather.gov'
 USER_AGENT = 'weather-agent'
-REQUEST_TIMEOUT = 20.0
-GEOCODE_TIMEOUT = 10.0  # Timeout for geocoding requests
+REQUEST_TIMEOUT = float(os.getenv('WEATHER_REQUEST_TIMEOUT', '30'))
+GEOCODE_TIMEOUT = float(os.getenv('WEATHER_GEOCODE_TIMEOUT', '15'))
 
 # --- Shared HTTP Client ---
 http_client = httpx.AsyncClient(

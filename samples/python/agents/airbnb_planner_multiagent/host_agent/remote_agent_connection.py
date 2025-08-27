@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 
 import httpx
@@ -26,7 +27,11 @@ class RemoteAgentConnections:
     def __init__(self, agent_card: AgentCard, agent_url: str):
         print(f'agent_card: {agent_card}')
         print(f'agent_url: {agent_url}')
-        self._httpx_client = httpx.AsyncClient(timeout=30)
+        
+        # Get timeout from environment variable, default to 300 seconds if not set  
+        communication_timeout = int(os.getenv('AGENT_COMMUNICATION_TIMEOUT', '300'))
+        
+        self._httpx_client = httpx.AsyncClient(timeout=communication_timeout)
         self.agent_client = A2AClient(
             self._httpx_client, agent_card, url=agent_url
         )

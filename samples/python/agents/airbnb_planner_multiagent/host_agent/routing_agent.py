@@ -118,8 +118,12 @@ class RoutingAgent:
         self, remote_agent_addresses: list[str]
     ) -> None:
         """Asynchronous part of initialization."""
+        # Get card resolution timeout from environment variable, default to 60 seconds if not set
+        card_resolution_timeout = int(os.getenv('AGENT_CARD_RESOLUTION_TIMEOUT', '60'))
+        print(f'Using agent card resolution timeout: {card_resolution_timeout} seconds')
+        
         # Use a single httpx.AsyncClient for all card resolutions for efficiency
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=card_resolution_timeout) as client:
             for address in remote_agent_addresses:
                 card_resolver = A2ACardResolver(
                     client, address
